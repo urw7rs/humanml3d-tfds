@@ -2,7 +2,10 @@
 
 import os
 from pathlib import Path
-import itertools
+import functools
+
+from joblib import Parallel
+
 
 import numpy as np
 import torch
@@ -60,42 +63,39 @@ class Builder(tfds.core.GeneratorBasedBuilder):
     def _split_generators(self, dl_manager: tfds.download.DownloadManager):
         """Returns SplitGenerators."""
         manual_dir: Path = Path(dl_manager._manual_dir)
-        extracted_dir = manual_dir / "extracted"
+        extract_dir = manual_dir / "raw"
+        humanact12_path = dl_manager.download(f"{base_url}/pose_data/humanact12.zip")
+        index_path = dl_manager.download(f"{base_url}/index.csv")
+        text_path = dl_manager.download_and_extract(f"{base_url}/HumanML3D/texts.zip")
 
-        (
-            male_bm_path,
-            female_bm_path,
-            male_dmpl_path,
-            female_dmpl_path,
-        ) = humanml3d_utils.extract_smpl_files(manual_dir, extracted_dir)
+        train, test, val, train_val = [
+            dl_manager.download(f"{base_url}/HumanML3D/{name}")
+            for name in ["train.txt", "test.txt", "val.txt", "train_val.txt"]
+        ]
+
+        smpl_path, dmpl_path = humanml3d_utils.extract_smpl_files(
+            manual_dir, extract_dir
+        )
 
         device = torch.device("cuda") if torch.cuda.is_available() else "cpu"
 
-        body_model = AMASSBodyModel(
-            male_bm_path,
-            female_bm_path,
-            male_dmpl_path,
-            female_dmpl_path,
-        ).to(device)
+        body_model = AMASSBodyModel(smpl_path, dmpl_path).to(device)
 
-        extracted_paths = humanml3d_utils.extract_amass_files(
-            dl_manager.manual_dir, extracted_dir
+        amass_paths = humanml3d_utils.extract_amass_files(manual_dir, extract_dir)
+        humanact_paths = humanml3d_utils.load_humanact12(humanact12_path, extract_dir)
+
+        positions = humanml3d_utils.to_positions(
+            amass_paths,
+            body_model,
+            device,
         )
-
-        amass_positions = humanml3d_utils.positions(extracted_paths, body_model, device)
-
-        index_path = dl_manager.download(f"{base_url}/index.csv")
-
-        humanact_path = dl_manager.download(f"{base_url}/pose_data/humanact12.zip")
-        humanact_positions = humanml3d_utils.extract_humanact12(
-            humanact_path, extracted_dir
-        )
-
-        positions = itertools.chain(amass_positions, humanact_positions)
+        positions.extend(humanact_paths)
 
         pose_representation = humanml3d_utils.motion_representation(
             humanml3d_utils.flip_left_right(
-                humanml3d_utils.format(positions, extracted_dir, index_path)
+                humanml3d_utils.format_poses(
+                    positions, root=extract_dir, index_path=index_path, fps=20
+                )
             )
         )
 
@@ -104,24 +104,20 @@ class Builder(tfds.core.GeneratorBasedBuilder):
             os.makedirs(path.parent, exist_ok=True)
             np.save(path, array)
 
-        text_path = dl_manager.download_and_extract(f"{base_url}/HumanML3D/texts.zip")
         for file in text_path.glob("*/*.txt"):
             text = file.read_text()
 
-            path = dl_manager.manual_dir / "text" / file.name
+            path = manual_dir / "text" / file.name
             os.makedirs(path.parent, exist_ok=True)
             path.write_text(text)
 
         train, test, val, train_val = [
             humanml3d_utils.load_splits(
-                dl_manager.download(f"{base_url}/HumanML3D/{name}"),
-                manual_dir / "joint_vecs",
-                manual_dir / "text",
+                split, manual_dir / "joint_vecs", manual_dir / "text"
             )
-            for name in ["train.txt", "test.txt", "val.txt", "train_val.txt"]
+            for split in [train, test, val, train_val]
         ]
 
-        # TODO(humanml3d): Returns the Dict[split names, Iterator[Key, Example]]
         return {
             "train": self._generate_examples(train),
             "val": self._generate_examples(val),
