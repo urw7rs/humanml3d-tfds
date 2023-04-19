@@ -50,7 +50,9 @@ class Builder(tfds.core.GeneratorBasedBuilder):
                 {
                     # These are the features of your dataset like images, labels ...
                     "motion": tfds.features.Tensor(shape=(None, 263), dtype=np.float32),
-                    "text": tfds.features.Text(),
+                    "length": tfds.features.Tensor(shape=(1), dtype=np.uint32),
+                    "caption": tfds.features.Text(),
+                    "tokens": tfds.features.Text(),
                 }
             ),
             # If there's a common (input, target) tuple from the
@@ -128,7 +130,28 @@ class Builder(tfds.core.GeneratorBasedBuilder):
     def _generate_examples(self, path_pairs):
         """Yields examples."""
 
-        for i, (joint_path, text_path) in enumerate(path_pairs):
+        i = 0
+        for joint_path, text_path in path_pairs:
             data = np.load(joint_path)
             text = text_path.read_text()
-            yield str(i), {"motion": data, "text": text}
+
+            for line in text.splitlines():
+                caption, tokens, f_tag, to_tag = line.strip().split("#")
+
+                f_tag, to_tag = [float(tag) for tag in [f_tag, to_tag]]
+
+                f_tag = 0.0 if np.isnan(f_tag) else f_tag
+                to_tag = 0.0 if np.isnan(to_tag) else to_tag
+
+                if f_tag == 0.0 and to_tag == 0.0:
+                    motion = data
+                else:
+                    motion = data[int(f_tag * 20) : int(to_tag * 20)]
+
+                yield str(i), {
+                    "motion": motion,
+                    "length": motion.shape[0],
+                    "caption": caption,
+                    "tokens": tokens,
+                }
+                i += 1
