@@ -2,10 +2,6 @@
 
 import os
 from pathlib import Path
-import functools
-
-from joblib import Parallel
-
 
 import numpy as np
 import torch
@@ -29,9 +25,11 @@ base_url = "https://raw.githubusercontent.com/EricGuo5513/HumanML3D/ab5b332c3148
 class Builder(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for humanml3d dataset."""
 
-    VERSION = tfds.core.Version("1.0.0")
+    VERSION = tfds.core.Version("1.2.0")
     RELEASE_NOTES = {
         "1.0.0": "Initial release.",
+        "1.1.0": "Generates cropped motions from tags.",
+        "1.2.0": "deduplicates full motions.",
     }
     MANUAL_DOWNLOAD_INSTRUCTIONS = """
     Register into https://amass.is.tue.mpg.de to get the data. Place the `data.zip`
@@ -50,7 +48,7 @@ class Builder(tfds.core.GeneratorBasedBuilder):
                 {
                     # These are the features of your dataset like images, labels ...
                     "motion": tfds.features.Tensor(shape=(None, 263), dtype=np.float32),
-                    "length": tfds.features.Tensor(shape=(1), dtype=np.uint32),
+                    "length": tfds.features.Tensor(shape=(1,), dtype=np.int64),
                     "caption": tfds.features.Text(),
                     "tokens": tfds.features.Text(),
                 }
@@ -135,22 +133,42 @@ class Builder(tfds.core.GeneratorBasedBuilder):
             data = np.load(joint_path)
             text = text_path.read_text()
 
+            caption_token_pairs = []
             for line in text.splitlines():
                 caption, tokens, f_tag, to_tag = line.strip().split("#")
 
-                f_tag, to_tag = [float(tag) for tag in [f_tag, to_tag]]
+                f_tag = float(f_tag)
+                to_tag = float(to_tag)
 
+                # some tags have the text nan in them
                 f_tag = 0.0 if np.isnan(f_tag) else f_tag
                 to_tag = 0.0 if np.isnan(to_tag) else to_tag
 
                 if f_tag == 0.0 and to_tag == 0.0:
                     motion = data
+                    caption_token_pairs.append((caption, tokens))
                 else:
-                    motion = data[int(f_tag * 20) : int(to_tag * 20)]
+                    motion = data[int(f_tag * ex_fps) : int(to_tag * ex_fps)]
+
+                    yield str(i), {
+                        "motion": motion,
+                        "length": np.array([motion.shape[0]]),
+                        "caption": caption,
+                        "tokens": tokens,
+                    }
+                    i += 1
+
+            # randomly select token caption pair
+            if len(caption_token_pairs) > 0:
+                if len(caption_token_pairs) == 1:
+                    caption, tokens = caption_token_pairs[0]
+                else:
+                    idx = np.random.choice(range(len(caption_token_pairs)))
+                    caption, tokens = caption_token_pairs[idx]
 
                 yield str(i), {
-                    "motion": motion,
-                    "length": motion.shape[0],
+                    "motion": data,
+                    "length": np.array([data.shape[0]]),
                     "caption": caption,
                     "tokens": tokens,
                 }
