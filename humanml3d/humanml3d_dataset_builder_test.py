@@ -1,14 +1,14 @@
 """humanml3d dataset."""
 
 import tensorflow_datasets as tfds
-from . import humanml3d_dataset_builder
+from humanml3d_dataset_builder import Builder
 
 
 class Humanml3dTest(tfds.testing.DatasetBuilderTestCase):
     """Tests for humanml3d dataset."""
 
     # TODO(humanml3d):
-    DATASET_CLASS = humanml3d_dataset_builder.Builder
+    DATASET_CLASS = Builder
     SPLITS = {
         "train": 3,  # Number of fake train example
         "test": 1,  # Number of fake test example
@@ -19,8 +19,8 @@ class Humanml3dTest(tfds.testing.DatasetBuilderTestCase):
     # then the tests needs to provide the fake output paths relative to the
     # fake data directory
     # DL_EXTRACT_RESULT = {'some_key': 'output_file1.txt', ...}
-    tfds.load("humanml3d", split="train")
 
 
 if __name__ == "__main__":
+    breakpoint()
     tfds.testing.test_main()
