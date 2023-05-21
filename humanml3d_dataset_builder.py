@@ -25,15 +25,16 @@ base_url = "https://raw.githubusercontent.com/EricGuo5513/HumanML3D/ab5b332c3148
 class Builder(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for humanml3d dataset."""
 
-    VERSION = tfds.core.Version("1.2.0")
+    VERSION = tfds.core.Version("1.4.0")
     RELEASE_NOTES = {
         "1.0.0": "Initial release.",
         "1.1.0": "Generates cropped motions from tags.",
         "1.2.0": "deduplicates full motions.",
+        "1.4.0": "return raw data.",
     }
     MANUAL_DOWNLOAD_INSTRUCTIONS = """
-    Register into https://amass.is.tue.mpg.de to get the data. Place the `data.zip`
-    file in the `manual_dir/`.
+    Register into https://amass.is.tue.mpg.de to download amass data. Place the
+    files in `manual_dir/`.
     """
     URLS = {
         "index.csv": base_url + "index.csv",
@@ -48,7 +49,6 @@ class Builder(tfds.core.GeneratorBasedBuilder):
                 {
                     # These are the features of your dataset like images, labels ...
                     "motion": tfds.features.Tensor(shape=(None, 263), dtype=np.float32),
-                    "length": tfds.features.Tensor(shape=(1,), dtype=np.int64),
                     "caption": tfds.features.Text(),
                     "tokens": tfds.features.Text(),
                 }
@@ -152,24 +152,20 @@ class Builder(tfds.core.GeneratorBasedBuilder):
 
                     yield str(i), {
                         "motion": motion,
-                        "length": np.array([motion.shape[0]]),
                         "caption": caption,
                         "tokens": tokens,
                     }
                     i += 1
 
-            # randomly select token caption pair
             if len(caption_token_pairs) > 0:
                 if len(caption_token_pairs) == 1:
                     caption, tokens = caption_token_pairs[0]
                 else:
-                    idx = np.random.choice(range(len(caption_token_pairs)))
-                    caption, tokens = caption_token_pairs[idx]
+                    caption, tokens = zip(*caption_token_pairs)
 
                 yield str(i), {
                     "motion": data,
-                    "length": np.array([data.shape[0]]),
-                    "caption": caption,
-                    "tokens": tokens,
+                    "caption": "\n".join(caption),
+                    "tokens": "\n".join(tokens),
                 }
                 i += 1
